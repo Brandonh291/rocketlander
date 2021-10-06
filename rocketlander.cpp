@@ -2,6 +2,9 @@
 #include "Util.h"
 #include "MPU9250.h"
 #include "LSM9DS1.h"
+#include "InertialSensor.h"
+#include "PWM.h"
+#include "RCOutput_Navio2.h"
 #include "Util.h"
 #include <unistd.h>
 #include <stdio.h>
@@ -9,41 +12,30 @@
 #include <memory>
 #include <iostream>
 #include <fstream>
-#include "InertialSensor.h"
-#include "PWM.h"
-#include "RCOutput_Navio2.h"
 #include <chrono>
 #include <ctime>
 #include <ratio>
 
-double temp;
-double press;
-double alt;
-double accel;
-float ax;
-float ay;
-float az;
-float gx;
-float gy;
-float gz;
-float mx;
-float my;
-float mz;
-int mode;
-double pulselen;
-double pulselen1;
-double pulselen2;
-double curTime;
-double num = 0;
+//Change to day of Launch Conditions
+double seaLevelhPa = 1027.09;
 
+//data variables
+double temp, press, alt, accel, height;
+float ax, ay, az;
+float gx, gy, gz;
+float mx, my, mz;
+
+//defining thresholds and variables for modes
 double ASCENT_THRESHOLD = 8.5; //m/s^2
-double LAND_THRESHOLD = 11;
-double DESCENT_THRESHOLD = 11;
+double LAND_THRESHOLD = 11; //m/s^2
+double DESCENT_THRESHOLD = 11;//m/s^2
 double RELEASE_HEIGHT = 19; //meters
 double LAND_HEIGHT = 0.5; //meters
-double IGNITION_HEIGHT = 8.829;
-double IGNITION_TIME = 1.45;
+double IGNITION_HEIGHT = 8.829; //meters
+double IGNITION_TIME = 1.45; //seconds
 
+// defining modes
+int mode;
 #define MODE_BIAS       0
 #define MODE_INIT       1
 #define MODE_IDLE       2
@@ -55,7 +47,7 @@ double IGNITION_TIME = 1.45;
 #define MODE_LAND       8
 #define MODE_SAFE       9
 
-
+// variables and pins for servos
 #define mtx_type double
 #define PWM_OUTPUT1 1
 #define PWM_OUTPUT2 2
@@ -64,17 +56,19 @@ double IGNITION_TIME = 1.45;
 #define SERVOMAX  1750
 #define SERVO_ZEROX 1500
 #define SERVO_ZEROZ 1500
-
 double servo_limit = 0.0873; 
+double pulselen, pulselen1, pulselen2;
+double phi=0.0;
+double theta=0.0;
 
-double dt_1;
+//time variables
+double curTime;
 double ignitionTimer;
 double dt=0.022;
 
+//quaternion integrator variables
 mtx_type gyro[3][1];
-//gyro bias initialization
 mtx_type gbias[3]={0.0,0.0,0.0};
-
 mtx_type q[4]={1.0,0.0,0.0,0.0};
 mtx_type qdot[4];
 mtx_type k1q[4];
@@ -82,16 +76,14 @@ mtx_type k2q[4];
 mtx_type k3q[4];
 mtx_type k4q[4];
 
-//moment of inertia
+// flags for finding time of each loop
 bool gimbal = false;
 bool first_dt = true;
 
 //gimbal angles in rad
-double phi=0.0;
-double theta=0.0;
 int biasData = 0;
-double seaLevelhPa = 1027.09;
-double height;
+
+//declaration of all functions
 void barometerReading(MS5611);
 void Controller();
 void Integrator();
@@ -102,19 +94,24 @@ void Copy(mtx_type*, int, int, mtx_type*);
 void IgniteMotor();
 void saveDataFirst();
 void saveData();
+
 int main(){
+    //set initial mode
     mode = MODE_BIAS;
-    // Sensor Initilization
+
+    //Set up barometer
     MS5611 barometer;
     barometer.initialize();
     barometerReading(barometer);
     double baseAlt = alt;
-    printf("Initialized Barometer \n");
+    //printf("Initialized Barometer \n");
 
+    //Set up IMU
     auto IMU_sensor = std::unique_ptr <InertialSensor>{ new MPU9250() };
     IMU_sensor->initialize();
-    printf("Initilized IMU \n");
+    //printf("Initilized IMU \n");
 
+    //Set up servos
     auto pwm = std::unique_ptr <RCOutput>{ new RCOutput_Navio2() };
     pwm->initialize(PWM_OUTPUT1);
     pwm->initialize(PWM_OUTPUT2);
@@ -123,9 +120,10 @@ int main(){
     pwm->set_frequency(PWM_OUTPUT1, 50);
     pwm->set_frequency(PWM_OUTPUT2, 50);
 
+    //Set up ignitor pin on servo rail
     pwm->initialize(ignitorPin);
     pwm->set_frequency(ignitorPin, 50);
-    printf("set up clocks \n");
+    
     // Defining clock variables - see if I can remove now() and put up top as a definition
     auto start = std::chrono::system_clock::now();
     auto end = std::chrono::system_clock::now();
@@ -134,9 +132,17 @@ int main(){
     auto ignition_timer_current = std::chrono::system_clock::now();
     auto ignition_timer = (ignition_timer_current-start_ignition_timer);
     auto initialTime = std::chrono::system_clock::now();
+
+    
     while(true){ 
+
+        //tests to see if gimbal control has begun to start calculating the timesteps
         if(gimbal == true){
             start = std::chrono::system_clock::now();
+        }
+        //verify that the acceleration is still primarily in the y direction, if not, safe mode.
+        if(sqrt(ax*ax +az*az)>4){
+            mode = MODE_SAFE;
         }
         //collect new data
         printf("collect data \n");
@@ -155,17 +161,16 @@ int main(){
             gx = gx - gbias[0];
             gy = gy - gbias[1];
             gz = gz - gbias[2];
+            Integrator();
             saveData();
         }
 
         switch (mode){
             case MODE_BIAS:
-                //printf("Calculating Gyroscope Bias \n");
+                //adds up first 1000 data points and finds the average value to find the gyroscope bias
                 gbias[0]+=gx;
                 gbias[1]+=gy;
                 gbias[2]+=gz;
-                printf("gyro: x %f y %f z %f bias: x %f y %f z %f \n", gx, gy, gz, gbias[0], gbias[1], gbias[2]);
-                //usleep(10000);
                 biasData = biasData+1;
 
                 if(biasData == 1000){
@@ -177,8 +182,8 @@ int main(){
                 break;
             
             case MODE_INIT:
-            // Servo Commands for initilization
-                printf("Running Servo Test \n");
+                //Servo Commands for initilization. Servos will move their full range in each direction to test that they are functioning
+                //printf("Running Servo Test \n");
                 for (uint16_t pulselen = SERVOMIN+10; pulselen < SERVOMAX-10; pulselen++) {
                     pwm->set_duty_cycle(PWM_OUTPUT1, pulselen);
                     usleep(5000);
@@ -206,17 +211,18 @@ int main(){
                 break;
 
             case MODE_IDLE:
-                /*waiting to lift off, if off pad, change mode*/
+                /*waiting to lift off, if off pad, change mode
+                  Tests this by waiting for a change in acceleration*/
                 if(accel < ASCENT_THRESHOLD) mode=MODE_ASCENT;
                 break;
 
             case MODE_ASCENT:
-                /*if ascent stops AND barometer is at expected value, then mode change*/
-                if(accel < ASCENT_THRESHOLD && alt >= RELEASE_HEIGHT) mode=MODE_ALTITUDE;
+                /*if barometer is at expected value, then mode change*/
+                if(alt >= RELEASE_HEIGHT) mode=MODE_ALTITUDE;
                 break;
 
             case MODE_ALTITUDE:
-                /*waiting for release*/
+                /*waiting for release, changes mode when acceleration shows rocket has been dropped*/
                 if(accel > DESCENT_THRESHOLD){
                     start_ignition_timer = std::chrono::system_clock::now();
                     mode=MODE_RELEASE;
@@ -225,7 +231,8 @@ int main(){
                 break;
 
             case MODE_RELEASE:
-                /*freefalling, start ignition timer*/
+                /*freefalling, start ignition timer, ignition occurs once the timer has reached the 
+                needed delay time and the rocket has reached the maximum ignition height*/
                 ignition_timer_current = std::chrono::system_clock::now();
                 ignition_timer =  ignition_timer_current - start_ignition_timer;
                 ignitionTimer = (double)ignition_timer.count();
@@ -233,43 +240,48 @@ int main(){
                 break;
 
             case MODE_IGNITE:
-                //ignite the motor
+                //ignite the motor by sending a high current through the ignition circuit
                 pwm->set_duty_cycle(ignitorPin, 10000); //look up high value
-                usleep(1); //change to 350 miliseconds
-                pwm->set_duty_cycle(ignitorPin, 0);
+                usleep(350000); //Leave high current for 350 miliseconds
+                pwm->set_duty_cycle(ignitorPin, 0); //cut current off
                 //printf("Begin Gimbal Control \n");
                 mode=MODE_DECEL;
                 break;
 
             case MODE_DECEL:
-                
+                //change boolean variable to true to indicate we reached gimbal control
                 gimbal = true;
                 
-                Integrator();
+                //run the controller to find the servo angles needed to correct vertical deviation and to null rates
                 Controller();
                 //servo commands
                 pwm->set_duty_cycle(PWM_OUTPUT1, pulselen1);
                 pwm->set_duty_cycle(PWM_OUTPUT2, pulselen2);
-                // set to zero initally then set it to something huge
+
+                //finding time elapsed for the loop
                 end = std::chrono::system_clock::now();
                 elapsed = (end-start);
-                dt_1 = (double)elapsed.count();
-                dt = 0.000000001*dt_1;
+                //change to seconds
+                dt = 0.000000001*(double)elapsed.count();
+
+                //set the first loop to the average loop time as start time is defined up in the main loop once gimbal is true
                 if(first_dt == true){
                     dt = 0.022;
                     first_dt = false;
                 }
-                printf("time(seconds): %f \n", dt);
+                //printf("time(seconds): %f \n", dt);
+
                 if(accel < LAND_THRESHOLD && height < LAND_HEIGHT) mode=MODE_LAND;
                 break;
 
             case MODE_LAND:
-                /*on the ground, upright?*/
+                //set servos to zero positions to indicate end of control and to show landing has been sensed
                 pwm->set_duty_cycle(PWM_OUTPUT1, SERVO_ZEROX);
                 pwm->set_duty_cycle(PWM_OUTPUT2, SERVO_ZEROZ);
                 break;
 
             case MODE_SAFE:
+                //set servos to zero positions in case of unsafe flight
                 pwm->set_duty_cycle(PWM_OUTPUT1, SERVO_ZEROX);
                 pwm->set_duty_cycle(PWM_OUTPUT2, SERVO_ZEROZ);
                 break;
@@ -283,7 +295,7 @@ int main(){
 }
 
 void barometerReading(MS5611 barometer) {
-        
+    //finds pressure, temperature, and altitude as a function of pressure
     barometer.refreshPressure();
     usleep(10000); // Waiting for pressure data ready
     barometer.readPressure();
@@ -294,40 +306,38 @@ void barometerReading(MS5611 barometer) {
 
     barometer.calculatePressureAndTemperature();
 
-    temp = barometer.getTemperature();
+    temp = barometer.getTemperature(); //celcius
     press =  barometer.getPressure(); //millibars
 
-    alt = 44330 * (1.0 - pow(press / seaLevelhPa, 0.1903));
+    alt = 44330 * (1.0 - pow(press / seaLevelhPa, 0.1903)); //meters
 
 }
 
 void Controller(){
     //controller gains
-    double Kp=0.4; //was 0.01 0.01
-    double Kd=0.1;
+    double Kp=0.4; //position gain
+    double Kd=0.1; //rate gain
+
     //controller torques
     double tau_x,tau_z;
     //controller forces
-    double f_x, f_z, f_real = 1.0; //can change to force of thrust
+    double f_x, f_z, f_real = 1.0; 
     double x;
+    double lever_gimbal=0.10;
 
-    double lever_gimbal=0.10; // update length
-    
-    // grab force at time in thrust
-    // f_real = thrust[]
     // run PD controller to get desired torque
     tau_x = -Kp*q[1] - Kd*gx; //ideal torque about x body axis
     tau_z = -Kp*q[3] - Kd*gz; //ideal torque about z body axis
 
-    f_x = tau_z /lever_gimbal; 
-    f_z = -tau_x / lever_gimbal;
+    f_x = tau_z /lever_gimbal; //force needed around x axis
+    f_z = -tau_x / lever_gimbal; //force needed around z axis
 
     // get real servo angle phi (around x axis)
     x = -f_x/ f_real;
     if (abs(x) > sin(servo_limit)){
         phi = sign(-f_x) * servo_limit;
     }else{
-        phi = asin(x); //asin return -pi/2 ~ pi/2
+        phi = asin(x); 
     }
 
 
@@ -336,14 +346,14 @@ void Controller(){
     if (abs(x) > sin(servo_limit)){
         theta = sign(f_z) * servo_limit;
     }else{
-        theta = asin(x); //asin return -pi/2 ~ pi/2
+        theta = asin(x);
     } 
     
-    
+    //convert angles from radians to degrees
     double th = theta*180/3.14;
     double ph = phi*180/3.14;
     //printf("Servo Angles Theta: %f phi: %f \n", th, ph);
-    //set servo positions
+    //set servo positions based on servo limits
     double angle1 = ph*250/5; 
     double angle2 = th*240/5;
     pulselen1 = (angle1) + SERVO_ZEROX;
@@ -352,6 +362,7 @@ void Controller(){
 }
 
 double sign(double x){
+    //returns the sign of the variable
     if (x>0)
         return 1.0;
     else
@@ -386,7 +397,7 @@ void Integrator(){
     gyro[1][0] = gy;
     gyro[2][0] = gz;
 
-    //qdot= |E|*gyro
+    //qdot= 0.5*E*gyro
     Multiply((mtx_type*)E,(mtx_type*)gyro,4,3,1,(mtx_type*)qdot);
     Scale((mtx_type*)qdot,4,1,0.5); 
     //set up runge kutta integrator for qdot
@@ -461,12 +472,14 @@ void Integrator(){
 
 void Scale(mtx_type* A, int m, int n, mtx_type k)
 {
+    //multiply a matrix by a value
 	for (int i = 0; i < m; i++)
 		for (int j = 0; j < n; j++)
 			A[n * i + j] = A[n * i + j] * k;
 }
 void Multiply(mtx_type* A, mtx_type* B, int m, int p, int n, mtx_type* C)
 {
+    //multiply two matrices
 	// A = input matrix (m x p)
 	// B = input matrix (p x n)
 	// m = number of rows in A
@@ -485,6 +498,7 @@ void Multiply(mtx_type* A, mtx_type* B, int m, int p, int n, mtx_type* C)
 
 void Copy(mtx_type* A, int n, int m, mtx_type* B)
 {
+    //copy a matrix to another variable
 	int i, j;
 	for (i = 0; i < m; i++)
 		for(j = 0; j < n; j++)
@@ -494,6 +508,7 @@ void Copy(mtx_type* A, int n, int m, mtx_type* B)
 }
 
 void saveDataFirst(){
+    //set titles for data file
     std::ofstream myfile;
     myfile.open("data_storage.csv", std::ios::app);
     myfile << "Current Time" << "," << "Quaternion Scalar" << "," << "Quaternion x componenet" << "," << "Quaternion y componenet"
@@ -502,26 +517,8 @@ void saveDataFirst(){
            << "," << "accelertometer in z-axis" << "," << "altitude" << "," << "pressure" << "\n";
 }
 void saveData(){
+    //save data
     std::ofstream myfile;
-    /*myfile.open("data_storage2.txt", std::ios::app);
-    myfile <<  gx << " " << gy << " " << gz << " " <<
-              q[0] << " " << q[1] << " " << q[2] << " " << q[3] << " " <<
-              E[0] << " " << E[1] << " " << E[2] << "\n";
-
-              */
-            /*attitude, angles and mode, fixed fields, gimbal angles, 
-             rocket attitude, rocket rates, accelerometers, mode that its
-             in, each line should be proceeded by the clock time.  At the 
-             start, have it print the names with commas so that it is readable, 
-             want all that data at once. Print out available storage left. 
-             somewhere you need altitude and pressure. Anythign I can think 
-             of that Im collecting, throw it in here.*/
-
-             // change landing to account for not straight up.
-
-             // st a timer for after release, can go back to low rate after 10 seconds
-             // also landing should be less than 10 seconds after
-
     myfile.open("data_storage.csv", std::ios::app);
     myfile << curTime << "," << q[0] << "," << q[1] << "," << q[2] << "," << q[3] << "," << gx << "," << gy << "," << gz << ","
            << ax << "," << ay << "," << az << "," <<  alt << "," << press << "\n";            
