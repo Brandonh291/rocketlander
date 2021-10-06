@@ -1,0 +1,11 @@
+[Unit]
+Description=Flight code for Rocket Lander
+After=systemd-modules-load.service
+
+[Service]
+Restart=on-failure
+
+ExecStart=/bin/sh -c "/home/pi/dodstem/src/start.sh"
+
+[Install]
+WantedBy=multi-user.target
