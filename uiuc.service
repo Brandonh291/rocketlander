@@ -5,7 +5,7 @@ After=systemd-modules-load.service
 [Service]
 Restart=on-failure
 
-ExecStart=/bin/sh -c "/home/pi/dodstem/src/start.sh"
+ExecStart=/bin/sh -c "/home/pi/rocketlander/start.sh"
 
 [Install]
 WantedBy=multi-user.target
