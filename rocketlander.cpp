@@ -115,7 +115,7 @@ int main(){
     auto pwm = std::unique_ptr <RCOutput>{ new RCOutput_Navio2() };
     pwm->initialize(PWM_OUTPUT1);
     pwm->initialize(PWM_OUTPUT2);
-    printf("Initialized Servo 1 \n");
+    //printf("Initialized Servo 1 \n");
     //printf("Initialized Servo 2 \n");
     pwm->set_frequency(PWM_OUTPUT1, 50);
     pwm->set_frequency(PWM_OUTPUT2, 50);
@@ -145,7 +145,7 @@ int main(){
             mode = MODE_SAFE;
         }
         //collect new data
-        printf("collect data \n");
+        //printf("collect data \n");
         barometerReading(barometer);
         height = alt-baseAlt;
         IMU_sensor->update();
