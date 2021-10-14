@@ -185,12 +185,12 @@ int main(){
             case MODE_INIT:
                 //Servo Commands for initilization. Servos will move their full range in each direction to test that they are functioning
                 //printf("Running Servo Test \n");
-                for (uint16_t pulselen = SERVOMIN+10; pulselen < SERVOMAX-10; pulselen++) {
+                for (uint16_t pulselen = SERVOMIN; pulselen < SERVOMAX-10; pulselen++) {
                     pwm->set_duty_cycle(PWM_OUTPUT1, pulselen);
                     usleep(5000);
                 }
                 usleep(50000);
-                for (uint16_t pulselen = SERVOMAX-10; pulselen > SERVOMIN+10; pulselen--) {
+                for (uint16_t pulselen = SERVOMAX; pulselen > SERVOMIN+10; pulselen--) {
                     pwm->set_duty_cycle(PWM_OUTPUT1, pulselen);
                     usleep(5000);
                 }
@@ -356,7 +356,7 @@ void Controller(){
     //printf("Servo Angles Theta: %f phi: %f \n", th, ph);
     //set servo positions based on servo limits
     double angle1 = ph*250/5; 
-    double angle2 = th*240/5;
+    double angle2 = th*250/5;
     pulselen1 = (angle1) + SERVO_ZEROX;
     pulselen2 = (angle2) + SERVO_ZEROZ;
     
