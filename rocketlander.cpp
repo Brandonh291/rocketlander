@@ -115,6 +115,7 @@ int main(){
     auto pwm = std::unique_ptr <RCOutput>{ new RCOutput_Navio2() };
     pwm->initialize(PWM_OUTPUT1);
     pwm->initialize(PWM_OUTPUT2);
+
     //printf("Initialized Servo 1 \n");
     //printf("Initialized Servo 2 \n");
     pwm->set_frequency(PWM_OUTPUT1, 50);
@@ -141,7 +142,7 @@ int main(){
             start = std::chrono::system_clock::now();
         }
         //verify that the acceleration is still primarily in the y direction, if not, safe mode.
-        if(sqrt(ax*ax +az*az)>4){
+        if(sqrt(ax*ax +az*az)>(9.8-(cos(15*pi/180))){
             mode = MODE_SAFE;
         }
         //collect new data
