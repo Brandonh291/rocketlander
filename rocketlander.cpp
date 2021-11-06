@@ -26,9 +26,9 @@ float gx, gy, gz;
 float mx, my, mz;
 
 //defining thresholds and variables for modes
-double ASCENT_THRESHOLD = 8.5; //m/s^2
-double LAND_THRESHOLD = 11; //m/s^2
-double DESCENT_THRESHOLD = 11;//m/s^2
+double ASCENT_THRESHOLD = 12; //m/s^2
+double LAND_THRESHOLD = 20; //m/s^2
+double DESCENT_THRESHOLD = 9;//m/s^2
 double RELEASE_HEIGHT = 19; //meters
 double LAND_HEIGHT = 0.5; //meters
 double IGNITION_HEIGHT = 8.829; //meters
@@ -36,36 +36,46 @@ double IGNITION_TIME = 1.45; //seconds
 
 // defining modes
 int mode;
-#define MODE_BIAS       0
-#define MODE_INIT       1
-#define MODE_IDLE       2
-#define MODE_ASCENT     3
-#define MODE_ALTITUDE   4
-#define MODE_RELEASE    5
-#define MODE_IGNITE     6
-#define MODE_DECEL      7
-#define MODE_LAND       8
-#define MODE_SAFE       9
+#define MODE_INIT       0
+#define MODE_IDLE       1
+#define MODE_ASCENT     2
+#define MODE_ALTITUDE   3
+#define MODE_RELEASE    4
+#define MODE_IGNITE     5
+#define MODE_DECEL      6
+#define MODE_LAND       7
+#define MODE_SAFE       8
 
 // variables and pins for servos
 #define mtx_type double
 #define PWM_OUTPUT1 1
 #define PWM_OUTPUT2 2
 #define ignitorPin 4
+#define ledPin 6
 #define SERVOMIN  1250
 #define SERVOMAX  1750
 #define SERVO_ZEROX 1500
 #define SERVO_ZEROZ 1500
 double servo_limit = 0.0873; 
-double pulselen, pulselen1, pulselen2;
+double pulselen;
+double pulselen1 = SERVO_ZEROX;
+double pulselen2 = SERVO_ZEROZ;
+double oldPulse1, oldPulse2, pulseChange1, pulseChange2;
+double pulse1, pulse2;
 double phi=0.0;
 double theta=0.0;
 
 //time variables
 double curTime;
 double ignitionTimer;
-double dt=0.022;
+double dt=0.05;
+double data = 0;
+double control = 10;
+double dt_test = 0;
+int num = 0;
 
+double accelval;
+int blink = 0;
 //quaternion integrator variables
 mtx_type gyro[3][1];
 mtx_type gbias[3]={0.0,0.0,0.0};
@@ -79,7 +89,9 @@ mtx_type k4q[4];
 // flags for finding time of each loop
 bool gimbal = false;
 bool first_dt = true;
-
+bool notLanded = true;
+bool startup = true;
+bool off = true;
 //gimbal angles in rad
 int biasData = 0;
 
@@ -94,11 +106,12 @@ void Copy(mtx_type*, int, int, mtx_type*);
 void IgniteMotor();
 void saveDataFirst();
 void saveData();
+void filter();
 
 int main(){
     //set initial mode
-    mode = MODE_BIAS;
-
+    mode = MODE_INIT;
+    saveDataFirst();
     //Set up barometer
     MS5611 barometer;
     barometer.initialize();
@@ -115,7 +128,6 @@ int main(){
     auto pwm = std::unique_ptr <RCOutput>{ new RCOutput_Navio2() };
     pwm->initialize(PWM_OUTPUT1);
     pwm->initialize(PWM_OUTPUT2);
-
     //printf("Initialized Servo 1 \n");
     //printf("Initialized Servo 2 \n");
     pwm->set_frequency(PWM_OUTPUT1, 50);
@@ -124,6 +136,17 @@ int main(){
     //Set up ignitor pin on servo rail
     pwm->initialize(ignitorPin);
     pwm->set_frequency(ignitorPin, 50);
+
+    //set up led pin
+    
+    pwm->initialize(ledPin);
+
+    pwm->set_frequency(ledPin, 25);
+
+    //should go on
+    pwm->set_duty_cycle(ledPin, 0); //led on
+    
+    //pwm->set_duty_cycle(ledPin, 40000); //turns led off
     
     // Defining clock variables - see if I can remove now() and put up top as a definition
     auto start = std::chrono::system_clock::now();
@@ -135,73 +158,101 @@ int main(){
     auto initialTime = std::chrono::system_clock::now();
 
     
-    while(true){ 
-
-        //tests to see if gimbal control has begun to start calculating the timesteps
-        if(gimbal == true){
-            start = std::chrono::system_clock::now();
+    for(int i=0; i<=1000; i++){      //adds up first 1000 data points and finds the average value to find the gyroscope bias
+        IMU_sensor->update();
+        IMU_sensor->read_gyroscope(&gx, &gy, &gz);
+        gbias[0]+=gx;
+        gbias[1]+=gy;
+        gbias[2]+=gz;
+        if(i==100 || i==300 || i==500 || i==700 || i==900){
+            pwm->set_duty_cycle(ledPin, 40000); //turns led off
         }
+        if(i==200 || i==400 || i==600 || i==800 || i==1000){
+            pwm->set_duty_cycle(ledPin, 0); //turns led on
+        }
+        //printf("bias: x: %f y: %f z: %f \n", gbias[0], gbias[1], gbias[2]);
+        
+    }
+        
+    gbias[0]=gbias[0]/1000.;
+    gbias[1]=gbias[1]/1000.;
+    gbias[2]=gbias[2]/1000.;
+    
+    while(notLanded){ 
+        
+        //tests to see if gimbal control has begun to start calculating the timesteps
         //verify that the acceleration is still primarily in the y direction, if not, safe mode.
-        if(sqrt(ax*ax +az*az)>(9.8-(cos(15*pi/180))){
+        accelval=sqrt(ax*ax +az*az);
+        if(accelval>8){
             mode = MODE_SAFE;
         }
+
+        //printf("acceleration not in y %f \n", accelval);
+
+        auto current_time = std::chrono::system_clock::now();
+        auto totalElapsed = (current_time-initialTime);
+        curTime = 0.000000001*(double)totalElapsed.count();
         //collect new data
-        //printf("collect data \n");
+        //printf("acceleration value %f \n", accel);
+        while(dt_test < 0.05){
+            end = std::chrono::system_clock::now();
+            elapsed = (end-start);
+            //change to seconds
+            dt_test = 0.000000001*(double)elapsed.count();   
+        }
+        dt = dt_test;
+        dt_test = 0;
+        start = std::chrono::system_clock::now();
+        
         barometerReading(barometer);
         height = alt-baseAlt;
+        //printf("height %f \n", height);
         IMU_sensor->update();
         IMU_sensor->read_accelerometer(&ax, &ay, &az);
         IMU_sensor->read_gyroscope(&gx, &gy, &gz);
-        IMU_sensor->read_magnetometer(&mx, &my, &mz);
-        auto current_time = std::chrono::system_clock::now();
 
-        auto totalElapsed = (current_time-initialTime);
-        curTime = 0.000000001*(double)totalElapsed.count();
         accel = sqrt(ax*ax + ay*ay + az*az);
-        if(mode != MODE_BIAS){
-            gx = gx - gbias[0];
-            gy = gy - gbias[1];
-            gz = gz - gbias[2];
-            Integrator();
-            saveData();
+        if(data=20){
+            startup=false;
         }
+        if(startup=false){
+            filter();
+        }
+        data +=1;
 
-        switch (mode){
-            case MODE_BIAS:
-                //adds up first 1000 data points and finds the average value to find the gyroscope bias
-                gbias[0]+=gx;
-                gbias[1]+=gy;
-                gbias[2]+=gz;
-                biasData = biasData+1;
+        gx = gx - gbias[0];
+        gy = gy - gbias[1];
+        gz = gz - gbias[2];
+        //printf("Rates: x: %f y: %f z: %f \n", gx, gy, gz);
+        Integrator();
+        saveData();
+        
 
-                if(biasData == 1000){
-                    gbias[0]=gbias[0]/1000.;
-                    gbias[1]=gbias[1]/1000.;
-                    gbias[2]=gbias[2]/1000.;
-                    mode = MODE_INIT;
-                }
-                break;
-            
+        switch (mode){            
             case MODE_INIT:
                 //Servo Commands for initilization. Servos will move their full range in each direction to test that they are functioning
                 //printf("Running Servo Test \n");
-                for (uint16_t pulselen = SERVOMIN; pulselen < SERVOMAX-10; pulselen++) {
+                for (uint16_t pulselen = SERVOMIN+10; pulselen < SERVOMAX-10; pulselen++) {
+                    //printf("servo: %f \n", pulselen);
                     pwm->set_duty_cycle(PWM_OUTPUT1, pulselen);
                     usleep(5000);
                 }
                 usleep(50000);
-                for (uint16_t pulselen = SERVOMAX; pulselen > SERVOMIN+10; pulselen--) {
+                for (uint16_t pulselen = SERVOMAX-10; pulselen > SERVOMIN+10; pulselen--) {
+                    //printf("servo: %f \n", pulselen);
                     pwm->set_duty_cycle(PWM_OUTPUT1, pulselen);
                     usleep(5000);
                 }
                 pwm->set_duty_cycle(PWM_OUTPUT1, SERVO_ZEROX);
                 usleep(50000);
                 for (uint16_t pulselen = SERVOMIN; pulselen < SERVOMAX; pulselen++) {
+                    //printf("servo: %f \n", pulselen);
                     pwm->set_duty_cycle(PWM_OUTPUT2, pulselen);
                     usleep(5000);
                 }
                 usleep(500000);
                 for (uint16_t pulselen = SERVOMAX; pulselen > SERVOMIN; pulselen--) {
+                    //printf("servo: %f \n", pulselen);
                     pwm->set_duty_cycle(PWM_OUTPUT2, pulselen);
                     usleep(5000);
                 }
@@ -209,22 +260,52 @@ int main(){
                 usleep(50000);
                 
                 mode = MODE_IDLE;
+                
                 break;
 
             case MODE_IDLE:
+                if(blink < 10){
+                    blink +=1;
+                }
+                else{
+                    if(off){
+                        pwm->set_duty_cycle(ledPin, 0); //turns led on
+                        off=false;
+                    }
+                    else{
+                        pwm->set_duty_cycle(ledPin, 40000); //turns led off
+                        off = true;
+                    }
+                    blink = 0;
+                }
                 /*waiting to lift off, if off pad, change mode
                   Tests this by waiting for a change in acceleration*/
-                if(accel < ASCENT_THRESHOLD) mode=MODE_ASCENT;
+                if(accel > ASCENT_THRESHOLD) mode=MODE_ASCENT;
                 break;
 
             case MODE_ASCENT:
+                pwm->set_duty_cycle(ledPin, 0); //turns led on
                 /*if barometer is at expected value, then mode change*/
-                if(alt >= RELEASE_HEIGHT) mode=MODE_ALTITUDE;
+                if(height >= RELEASE_HEIGHT) mode=MODE_ALTITUDE;
                 break;
 
             case MODE_ALTITUDE:
+                if(blink < 10){
+                        blink +=1;
+                }
+                else{
+                    if(off){
+                        pwm->set_duty_cycle(ledPin, 0); //turns led on
+                        off=false;
+                    }
+                    else{
+                        pwm->set_duty_cycle(ledPin, 40000); //turns led off
+                        off = true;
+                    }
+                    blink = 0;
+                }
                 /*waiting for release, changes mode when acceleration shows rocket has been dropped*/
-                if(accel > DESCENT_THRESHOLD){
+                if(accel < DESCENT_THRESHOLD){ //need ability to sense pin
                     start_ignition_timer = std::chrono::system_clock::now();
                     mode=MODE_RELEASE;
                 }
@@ -234,10 +315,11 @@ int main(){
             case MODE_RELEASE:
                 /*freefalling, start ignition timer, ignition occurs once the timer has reached the 
                 needed delay time and the rocket has reached the maximum ignition height*/
+                pwm->set_duty_cycle(ledPin, 0); //turns led on
                 ignition_timer_current = std::chrono::system_clock::now();
                 ignition_timer =  ignition_timer_current - start_ignition_timer;
                 ignitionTimer = (double)ignition_timer.count();
-                if(ignitionTimer > IGNITION_TIME && alt < IGNITION_HEIGHT) mode=MODE_IGNITE;
+                if(ignitionTimer > IGNITION_TIME) mode=MODE_IGNITE;
                 break;
 
             case MODE_IGNITE:
@@ -252,37 +334,84 @@ int main(){
             case MODE_DECEL:
                 //change boolean variable to true to indicate we reached gimbal control
                 gimbal = true;
-                
-                //run the controller to find the servo angles needed to correct vertical deviation and to null rates
-                Controller();
-                //servo commands
-                pwm->set_duty_cycle(PWM_OUTPUT1, pulselen1);
-                pwm->set_duty_cycle(PWM_OUTPUT2, pulselen2);
-
-                //finding time elapsed for the loop
-                end = std::chrono::system_clock::now();
-                elapsed = (end-start);
-                //change to seconds
-                dt = 0.000000001*(double)elapsed.count();
-
-                //set the first loop to the average loop time as start time is defined up in the main loop once gimbal is true
-                if(first_dt == true){
-                    dt = 0.022;
-                    first_dt = false;
+                if(blink < 10){
+                        blink +=1;
                 }
-                //printf("time(seconds): %f \n", dt);
+                else{
+                    if(off){
+                        pwm->set_duty_cycle(ledPin, 0); //turns led on
+                        off=false;
+                    }
+                    else{
+                        pwm->set_duty_cycle(ledPin, 40000); //turns led off
+                        off = true;
+                    }
+                    blink = 0;
+                }
+                if(control < 10){
+                    control +=1;
+                    pulse1 = oldPulse1+control*pulseChange1;
+                    pulse2 = oldPulse2+control*pulseChange2;
+                    //printf("control: %f \n", control);
+                    //printf("servo: 1: %f 2: %f \n", (pulse1-1500)/50, (pulse2-1500)/50);
+                    pwm->set_duty_cycle(PWM_OUTPUT1, pulse1);
+                    pwm->set_duty_cycle(PWM_OUTPUT2, pulse2);
+                }
+                else{
+                    //run the controller to find the servo angles needed to correct vertical deviation and to null rates
+                    oldPulse1 = pulselen1;
+                    oldPulse2 = pulselen2;
+                    Controller();
+                    //servo commands
+                    pulseChange1 = (pulselen1-oldPulse1)/10;
+                    pulseChange2 = (pulselen2-oldPulse2)/10;
+                    pulse1 = oldPulse1+pulseChange1;
+                    pulse2 = oldPulse2+pulseChange2;
+                    pwm->set_duty_cycle(PWM_OUTPUT1, pulse1);
+                    pwm->set_duty_cycle(PWM_OUTPUT2, pulse2);
+                    //printf("servo: 1: %f 2: %f \n", (pulse1-1500)/50, (pulse2-1500)/50);
+                    //finding time elapsed for the loop
+                    end = std::chrono::system_clock::now();
+                    elapsed = (end-start);
+                    //change to seconds
+                    dt = 0.000000001*(double)elapsed.count();
 
-                if(accel < LAND_THRESHOLD && height < LAND_HEIGHT) mode=MODE_LAND;
+                    //set the first loop to the average loop time as start time is defined up in the main loop once gimbal is true
+                    if(first_dt == true){
+                        dt = 0.05;
+                        first_dt = false;
+                    }
+                    
+                    control = 1;
+                }
+
+                if(accel > LAND_THRESHOLD) mode=MODE_LAND;
                 break;
 
             case MODE_LAND:
                 //set servos to zero positions to indicate end of control and to show landing has been sensed
+                pwm->set_duty_cycle(ledPin, 0); //turns led on
                 pwm->set_duty_cycle(PWM_OUTPUT1, SERVO_ZEROX);
                 pwm->set_duty_cycle(PWM_OUTPUT2, SERVO_ZEROZ);
+                notLanded = false;
                 break;
 
             case MODE_SAFE:
                 //set servos to zero positions in case of unsafe flight
+                if(blink < 2){
+                        blink +=1;
+                }
+                else{
+                    if(off){
+                        pwm->set_duty_cycle(ledPin, 0); //turns led on
+                        off=false;
+                    }
+                    else{
+                        pwm->set_duty_cycle(ledPin, 40000); //turns led off
+                        off = true;
+                    }
+                    blink = 0;
+                }
                 pwm->set_duty_cycle(PWM_OUTPUT1, SERVO_ZEROX);
                 pwm->set_duty_cycle(PWM_OUTPUT2, SERVO_ZEROZ);
                 break;
@@ -356,7 +485,7 @@ void Controller(){
     //printf("Servo Angles Theta: %f phi: %f \n", th, ph);
     //set servo positions based on servo limits
     double angle1 = ph*250/5; 
-    double angle2 = th*250/5;
+    double angle2 = th*240/5;
     pulselen1 = (angle1) + SERVO_ZEROX;
     pulselen2 = (angle2) + SERVO_ZEROZ;
     
@@ -515,13 +644,51 @@ void saveDataFirst(){
     myfile << "Current Time" << "," << "Quaternion Scalar" << "," << "Quaternion x componenet" << "," << "Quaternion y componenet"
            << "," << "Quaternion z componenet" << "," << "gyroscope x-axis rate" << "," << "gyroscope y-axis rate" << "," 
            << "gyroscope z-axis rate" << "," << "accelertometer in x-axis" << "," << "accelertometer in y-axis"
-           << "," << "accelertometer in z-axis" << "," << "altitude" << "," << "pressure" << "\n";
+           << "," << "accelertometer in z-axis" << "," << "altitude" << "," << "pressure" << "," << "acceleration" << "," << "mode" << "\n";
 }
 void saveData(){
     //save data
     std::ofstream myfile;
     myfile.open("data_storage.csv", std::ios::app);
     myfile << curTime << "," << q[0] << "," << q[1] << "," << q[2] << "," << q[3] << "," << gx << "," << gy << "," << gz << ","
-           << ax << "," << ay << "," << az << "," <<  alt << "," << press << "\n";            
+           << ax << "," << ay << "," << az << "," <<  alt << "," << press << "," << accel << "," << mode << "\n";            
     myfile.close();
+ }
+
+void filter(){
+    double gx_avg;
+    double gy_avg;
+    double gz_avg;
+    double gx20sum;
+    double gy20sum;
+    double gz20sum;
+    double gx20[20];
+    double gy20[20];
+    double gz20[20];
+    double kn = 0.8;
+    double ko = 1-kn;
+
+    gx20[num]=gx;
+    gy20[num]=gy;
+    gz20[num]=gz;
+    for(int i = 0; i<20 ; i++){
+        gx20sum+=gx20[i];
+        gy20sum+=gy20[i];
+        gz20sum+=gz20[i];
+    }
+
+    gx_avg = gx20sum/20;
+    gy_avg = gx20sum/20;
+    gz_avg = gx20sum/20;
+    gx = kn*gx + ko*gx_avg;
+    gy = kn*gy + ko*gy_avg;
+    gz = kn*gz + ko*gz_avg;
+
+    if(num<19){
+        num = num+1;
+    }
+    else{
+        num = 0;
+    }
 }
+
