@@ -17,7 +17,7 @@
 #include <ratio>
 
 //Change to day of Launch Conditions
-double seaLevelhPa = 1027.09;
+double seaLevelhPa = 1029.8008;
 
 //data variables
 double temp, press, alt, accel, height;
