@@ -640,7 +640,7 @@ void saveDataFirst(){
     //set titles for data file
     std::ofstream myfile;
     printf("save first \n");
-    myfile.open("/rocketlander/data_storageV1.csv", std::ios::app);
+    myfile.open("data_storageV1.csv", std::ios::app);
     myfile << "Current Time" << "," << "Quaternion Scalar" << "," << "Quaternion x componenet" << "," << "Quaternion y componenet"
            << "," << "Quaternion z componenet" << "," << "gyroscope x-axis rate" << "," << "gyroscope y-axis rate" << "," 
            << "gyroscope z-axis rate" << "," << "accelertometer in x-axis" << "," << "accelertometer in y-axis"
@@ -649,7 +649,7 @@ void saveDataFirst(){
 void saveData(){
     //save data
     std::ofstream myfile;
-    myfile.open("/rocketlander/data_storageV1.csv", std::ios::app);
+    myfile.open("data_storageV1.csv", std::ios::app);
     myfile << curTime << "," << q[0] << "," << q[1] << "," << q[2] << "," << q[3] << "," << gx << "," << gy << "," << gz << ","
            << ax << "," << ay << "," << az << "," <<  alt << "," << press << "," << accel << "," << mode << "\n";            
     myfile.close();
