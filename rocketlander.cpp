@@ -117,7 +117,6 @@ int main(){
     barometer.initialize();
     barometerReading(barometer);
     double baseAlt = alt;
-    //printf("Initialized Barometer \n");
 
     //Set up IMU
     auto IMU_sensor = std::unique_ptr <InertialSensor>{ new MPU9250() };
@@ -640,6 +639,7 @@ void Copy(mtx_type* A, int n, int m, mtx_type* B)
 void saveDataFirst(){
     //set titles for data file
     std::ofstream myfile;
+    printf("save first \n");
     myfile.open("data_storage.csv", std::ios::app);
     myfile << "V1.0" << "," << "Current Time" << "," << "Quaternion Scalar" << "," << "Quaternion x componenet" << "," << "Quaternion y componenet"
            << "," << "Quaternion z componenet" << "," << "gyroscope x-axis rate" << "," << "gyroscope y-axis rate" << "," 
