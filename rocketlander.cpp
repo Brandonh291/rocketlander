@@ -263,7 +263,7 @@ int main(){
                 break;
 
             case MODE_IDLE:
-                if(blink < 10){
+                if(blink < 2){
                     blink +=1;
                 }
                 else{
