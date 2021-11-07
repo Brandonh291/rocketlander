@@ -29,7 +29,7 @@ float mx, my, mz;
 double ASCENT_THRESHOLD = 12; //m/s^2
 double LAND_THRESHOLD = 20; //m/s^2
 double DESCENT_THRESHOLD = 9;//m/s^2
-double RELEASE_HEIGHT = 19; //meters
+double RELEASE_HEIGHT = 10; //19; //meters
 double LAND_HEIGHT = 0.5; //meters
 double IGNITION_HEIGHT = 8.829; //meters
 double IGNITION_TIME = 1.45; //seconds
