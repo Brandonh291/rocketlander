@@ -641,7 +641,7 @@ void saveDataFirst(){
     //set titles for data file
     std::ofstream myfile;
     myfile.open("data_storage.csv", std::ios::app);
-    myfile << "Current Time" << "," << "Quaternion Scalar" << "," << "Quaternion x componenet" << "," << "Quaternion y componenet"
+    myfile << "V1.0" << "," << "Current Time" << "," << "Quaternion Scalar" << "," << "Quaternion x componenet" << "," << "Quaternion y componenet"
            << "," << "Quaternion z componenet" << "," << "gyroscope x-axis rate" << "," << "gyroscope y-axis rate" << "," 
            << "gyroscope z-axis rate" << "," << "accelertometer in x-axis" << "," << "accelertometer in y-axis"
            << "," << "accelertometer in z-axis" << "," << "altitude" << "," << "pressure" << "," << "acceleration" << "," << "mode" << "\n";
