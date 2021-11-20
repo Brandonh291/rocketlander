@@ -24,6 +24,7 @@ double temp, press, alt, accel, height;
 float ax, ay, az;
 float gx, gy, gz;
 float mx, my, mz;
+float gxunfil, gyunfil, gzunfil;
 
 //defining thresholds and variables for modes
 double ASCENT_THRESHOLD = 12; //m/s^2
@@ -214,6 +215,9 @@ int main(){
         if(data=20){
             startup=false;
         }
+        gxunfil = gx - gbias[0];
+        gyunfil = gy - gbias[1];
+        gzunfil = gz - gbias[2];
         if(startup=false){
             filter();
         }
@@ -644,14 +648,17 @@ void saveDataFirst(){
     myfile << "Current Time" << "," << "Quaternion Scalar" << "," << "Quaternion x componenet" << "," << "Quaternion y componenet"
            << "," << "Quaternion z componenet" << "," << "gyroscope x-axis rate" << "," << "gyroscope y-axis rate" << "," 
            << "gyroscope z-axis rate" << "," << "accelertometer in x-axis" << "," << "accelertometer in y-axis"
-           << "," << "accelertometer in z-axis" << "," << "altitude" << "," << "pressure" << "," << "acceleration" << "," << "mode" << "\n";
+           << "," << "accelertometer in z-axis" << "," << "Magnetometer in x-axis" << "," << "Magnetometer in y-axis" << "," << "Magnetometer in z-axis"
+           << "Unfiltered gyroscope in x-axis" << "," << "Unfiltered gyroscope in y-axis" << "," << "Unfiltered gyroscope in z-axis" << "," 
+           << "altitude" << "," << "height" << "," << "pressure" << "," << "acceleration"  << "," << "mode" << "\n";
 }
 void saveData(){
     //save data
     std::ofstream myfile;
     myfile.open("data_storageV1.csv", std::ios::app);
     myfile << curTime << "," << q[0] << "," << q[1] << "," << q[2] << "," << q[3] << "," << gx << "," << gy << "," << gz << ","
-           << ax << "," << ay << "," << az << "," <<  alt << "," << press << "," << accel << "," << mode << "\n";            
+           << ax << "," << ay << "," << az << "," << mx << "," << my << "," << mz << "," << gxunfil << "," << gyunfil << "," 
+           << gzunfil << "," <<  alt << height << "," << "," << press << "," << accel << "," << mode << "\n";            
     myfile.close();
  }
 
