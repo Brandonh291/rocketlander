@@ -356,7 +356,6 @@ int main(){
                     servox = (pulse1-1500)/50;
                     servoy = (pulse2-1500)/50;
                     dt = 0.03333;
-                    printf("pulse1: %f 2: %f \n",pulseChange1, pulseChange2);
                     control = 1;
                 }
 
