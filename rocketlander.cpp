@@ -26,6 +26,8 @@ float gx, gy, gz;
 float mx, my, mz;
 float gxunfil, gyunfil, gzunfil;
 
+
+
 //defining thresholds and variables for modes
 double ASCENT_THRESHOLD = 12; //m/s^2
 double LAND_THRESHOLD = 20; //m/s^2
@@ -600,6 +602,12 @@ void Integrator(){
     q[1] = q[1] + (1.0/6.0) * ( k1q[1] + 2.0*k2q[1] + 2.0*k3q[1] + k4q[1] );
     q[2] = q[2] + (1.0/6.0) * ( k1q[2] + 2.0*k2q[2] + 2.0*k3q[2] + k4q[2] );
     q[3] = q[3] + (1.0/6.0) * ( k1q[3] + 2.0*k2q[3] + 2.0*k3q[3] + k4q[3] );
+
+    double q_norm = sqrt((q[0]*q[0]) + (q[1]*q[1]) + (q[2]*q[2]) + (q[3]*q[3]));
+    q[0] = q[0]/q_norm;
+    q[1] = q[1]/q_norm;
+    q[2] = q[2]/q_norm;
+    q[3] = q[3]/q_norm;
 }
 
 
